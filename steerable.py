@@ -6,15 +6,16 @@ import util
 class Steerable(object):
     def __init__(self, size, height=5, nbands=4, scale_factor=2., device=None):
         self.height = height
+        self.nbands = nbands
         self.sizes = np.ceil(np.array([
-            (M*scale_factor**(-i), N*scale_factor**(-i))
+            (size[0]*scale_factor**(-i), size[1]*scale_factor**(-i))
             for i in range(self.height)])).astype(np.int)
         self.scale_factor = scale_factor
-        self.device = device or torch.device
+        self.device = device or torch.device('cpu')
         self.build_mask()
 
     def tensor(self, i):
-        return torch.tensor(i[None,:,:,None], dtype=float, device=self.device)
+        return torch.tensor(i[None,:,:,None], dtype=torch.float, device=self.device)
 
     def build_mask(self):
         M, N = self.sizes[0]
@@ -38,13 +39,13 @@ class Steerable(object):
         Ycosn = 2*np.sqrt(const)*np.power(np.cos(Xcosn), order)*(np.abs(alpha)<np.pi/2)
         for size in self.sizes[1:]:
             Xrcos = Xrcos - np.log2(self.scale_factor)
-            himasks.append(self.tensor(log_rad, Yrcos, Xrcos))
+            self.himasks.append(self.tensor(util.pointOp(log_rad, Yrcos, Xrcos)))
             anglemasks = [self.tensor(util.pointOp(
                 angle, Ycosn, Xcosn+np.pi*b/self.nbands))
-                          for b in self.nbands]
+                          for b in range(self.nbands)]
             self.anglemasks.append(anglemasks)
-            angle = util.resize(angle, size)
-            log_rad = util.resize(log_rad, size)
+            angle = util.downsample(angle, size)
+            log_rad = util.downsample(log_rad, size)
             self.lomasks.append(self.tensor(util.pointOp(log_rad, YIrcos, Xrcos)))
 
     def decompose(self, im):
@@ -56,22 +57,46 @@ class Steerable(object):
         imdft = imdft * self.lo0mask
         orients = []
         for hi, angs, lo, sz in zip(
-            self.himasks, self.anglemasks, self.lomasks, self.size[1:]):
+            self.himasks, self.anglemasks, self.lomasks, self.sizes[1:]):
 
             band = util.rotate(imdft, -order) * hi
-            orients.append([util.ifft(band*ang for ang in angs)])
-            imdft = util.cresize(imdft, sz) * lo
+            orients.append([util.ifft(band*ang) for ang in angs])
+            imdft = util.resize(imdft, sz) * lo
         loband = util.irfft(imdft)
         return hiband, loband, orients
 
     def compose(self, hiband, loband, orients):
-        dft = util.irfft(loband)
+        dft = util.rfft(loband)
         order = self.nbands - 1
         for hi, angs, lo, sz, os in reversed(list(zip(
-            self.himasks, self.anglemasks, self.lomasks, self.size[:-1], orients))):
+            self.himasks, self.anglemasks, self.lomasks, self.sizes[:-1], orients))):
 
-            dft = util.cresize(dft*lo, sz)
+            dft = util.resize(dft*lo, sz)
             dft += sum(util.rotate(hi*ang*util.fft(o), order)
-                       for o, ang in zip(orients, angs))
-        dft = dft * self.lo0mask + util.irfft(hiband) * self.hi0mask
+                       for o, ang in zip(os, angs))
+        dft = dft * self.lo0mask + util.rfft(hiband) * self.hi0mask
         return util.irfft(dft)
+
+def test():
+    from skimage import io, transform
+    import matplotlib.pyplot as plt
+    im = io.imread('assets/lena.jpg', as_gray=True)
+    im = transform.resize(im, (512, 512))
+    im = torch.tensor(im).float().unsqueeze(0)
+    pry = Steerable(im.size()[-2:], height=2)
+    hiband, loband, orients = pry.decompose(im)
+    im_rec = pry.compose(hiband, loband, orients)
+    plt.figure()
+    plt.subplot(121)
+    plt.title('original')
+    plt.imshow(im.squeeze())
+    plt.subplot(122)
+    plt.title('reconstructed')
+    plt.imshow(im_rec.squeeze())
+    plt.show()
+    import ipdb; ipdb.set_trace()
+
+
+
+if __name__ == "__main__":
+    test()

@@ -1,6 +1,7 @@
 from scipy.misc import factorial
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 def base(m, n):
     x = np.linspace(-(m // 2)/(m / 2), (m // 2)/(m / 2) - (1 - m % 2)*2/m , num = m)
@@ -62,8 +63,25 @@ def rcosFn(width, position):
     X = position + 2*width/np.pi*(X + np.pi/4)
     return X, Y
 
-def cresize(x, size):
-    pass
-
 def resize(x, size):
-    pass
+    H0, W0 = x.size()[-3:-1]
+    H1, W1 = size
+    dh = abs(H1 - H0)
+    dw = abs(W1 - W0)
+    dh1, dh2 = dh//2, dh-dh//2
+    dw1, dw2 = dw//2, dw-dw//2
+    if H0 >= H1 and W0 >= W1:
+        return x[...,dh1:-dh2,dw1:-dw2,:]
+    elif H0 <= H1 and W0 <= W1:
+        return F.pad(x,(0,0,dw1,dw2,dh1,dh2))
+    else:
+        raise "cannot upsample and downsample at the same time"
+
+def downsample(x, size):
+    H0, W0 = x.shape[-2:]
+    H1, W1 = size
+    dh = abs(H1 - H0)
+    dw = abs(W1 - W0)
+    dh1, dh2 = dh//2, dh-dh//2
+    dw1, dw2 = dw//2, dw-dw//2
+    return x[...,dh1:-dh2,dw1:-dw2]
