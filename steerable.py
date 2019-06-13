@@ -36,7 +36,8 @@ class Steerable(object):
         order = self.nbands - 1
         const = np.power(2, 2*order) * np.square(util.factorial(order)) / (self.nbands * util.factorial(2*order))
         alpha = (Xcosn + np.pi) % (2*np.pi) - np.pi
-        Ycosn = 2*np.sqrt(const)*np.power(np.cos(Xcosn), order)*(np.abs(alpha)<np.pi/2)
+        Ycosn = np.sqrt(2*const)*np.power(np.cos(Xcosn), order)*(np.abs(alpha)<np.pi/2)
+        YIrcos = np.sqrt(np.abs(1-Yrcos*Yrcos))
         for size in self.sizes[1:]:
             Xrcos = Xrcos - np.log2(self.scale_factor)
             self.himasks.append(self.tensor(util.pointOp(log_rad, Yrcos, Xrcos)))
@@ -72,8 +73,8 @@ class Steerable(object):
             self.himasks, self.anglemasks, self.lomasks, self.sizes[:-1], orients))):
 
             dft = util.resize(dft*lo, sz)
-            dft += sum(util.rotate(hi*ang*util.fft(o), order)
-                       for o, ang in zip(os, angs))
+            dft += util.rotate(sum(hi*ang*util.fft(o)
+                       for o, ang in zip(os, angs)), order)
         dft = dft * self.lo0mask + util.rfft(hiband) * self.hi0mask
         return util.irfft(dft)
 
@@ -81,20 +82,22 @@ def test():
     from skimage import io, transform
     import matplotlib.pyplot as plt
     im = io.imread('assets/lena.jpg', as_gray=True)
-    im = transform.resize(im, (512, 512))
     im = torch.tensor(im).float().unsqueeze(0)
-    pry = Steerable(im.size()[-2:], height=2)
+    pry = Steerable(im.size()[-2:], height=5)
     hiband, loband, orients = pry.decompose(im)
     im_rec = pry.compose(hiband, loband, orients)
+    import ipdb; ipdb.set_trace()
     plt.figure()
-    plt.subplot(121)
+    plt.subplot(221)
     plt.title('original')
     plt.imshow(im.squeeze())
-    plt.subplot(122)
+    plt.subplot(222)
     plt.title('reconstructed')
     plt.imshow(im_rec.squeeze())
+    plt.subplot(223)
+    plt.title('difference')
+    plt.imshow((im-im_rec).squeeze())
     plt.show()
-    import ipdb; ipdb.set_trace()
 
 
 
